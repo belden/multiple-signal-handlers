@@ -10,7 +10,7 @@ use overload (
   fallback => 1,
 );
 
-our $VERSION = 0.04;
+our $VERSION = 0.05;
 
 sub TIESCALAR {
   my ($class, %args) = @_;
@@ -84,77 +84,105 @@ MultipleSignalHandlers - Attach multiple handlers to the same signal.
 
 =head1 SYNOPSIS
 
-    use Carp qw(cluck);
-    $SIG{_WARN__} = \&cluck;
+  use Carp qw(cluck);
+  $SIG{_WARN__} = \&cluck;
 
-    {
-      my $warn = MultipleSignalHandlers->manage(
-        __WARN__ => sub { ... }, # do some custom handling
-      );
+  {
+    my $restore = MultipleSignalHandlers->manage(
+      __WARN__ => sub { ... }, # do some custom handling
+    );
 
-      # Within the scope of $warn's life, your current handler will get
-      called # before the cluck() that we set up above.
-    }
+    # Within the scope of $warn's life, your current handler
+    # will get called before the cluck() that's originally
+    # handling $SIG{__WARN__}.
 
-    # scope ends, your $SIG{__WARN__} gets restored.
+  }
 
-=head1 CONTRACT
-
-I've been there: you need to tamper with the inner workings of some module
-you've pulled from CPAN, or you just need to stick extra information
-inside its instances.  Private attributes start with a hyphen (-). Play
-with them at your own risk.
-
-Handlers are dispatched in LIFO order.
+  # scope ends, your $SIG{__WARN__} handler gets restored to
+  # plain old \&cluck.
 
 =head1 METHODS
 
-=over 4
+=head2 B<manage>
 
-=item B<manage>
+  my $destroyer = MultipleSignalHandlers->manage(
+    $signal => \&handler,
+  );
 
-    my $dispatcher = MultipleSignalHandlers->manage($signal => \&handler);
+Takes the name of a signal (a valid key in %SIG), and a coderef to
+handle that signal (a valid value in %SIG).
 
-Takes the name of a signal (a valid key in %SIG), and a coderef to handle
-that signal (a valid value in %SIG). Returns a reference to the dispatcher
-that gets stored in %SIG.  When the dispatcher for this $signal goes out of
-scope, your %SIG reverts to its prior handling for this $signal.
+coderefs will be called as any normal signal handler in Perl.
+See the discussion of Signals in L<perlipc|perlipc>.
 
-=item B<terminate>
+Returns a reference to a destroyer for the dispatcher that gets stored
+in %SIG. When the destroyer for this $signal goes out of scope, %SIG
+reverts to its prior handling for this $signal.
 
-    $SIG{$signal}->terminate;
+=head2 B<terminate>
 
-Stops dispatching this signal to the various listening handlers. The most
-useful use I have for this is to generate unique warnings:
+  $SIG{$signal}->terminate;
 
-    # somewhere
-    use Carp qw(cluck);
-    local $SIG{__WARN__} = \&cluck;
+Stops dispatching this signal to the various listening handlers. The
+most useful use I have for this is to generate unique warnings:
 
-    # somewhere else, in code you want to quiet down a bit: use
-    MultipleSignalHandlers;
+  # somewhere
+  use Carp qw(cluck);
+  local $SIG{__WARN__} = \&cluck;
 
-    sub generates_warnings_not_sure_why {
-      my $dispatcher = MultipleSignalHandlers->manage(
-        __WARN__ => sub {
-          my ($warning) = @_; $SIG{__WARN__}->terminate if
-          $SIG{__WARN__}{-seen}{$warning}++;
-        },
-      );
+  # somewhere else, in code you want to quiet down a bit:
+  use MultipleSignalHandlers;
 
-      ... stuff that warns ...
-    }
+  sub generates_warnings_not_sure_why {
+    my $restore_sig_warn = MultipleSignalHandlers->manage(
+      __WARN__ => sub {
+        my ($warning) = @_;
+        $SIG{__WARN__}->terminate if $SIG{__WARN__}{seen}{$warning}++;
+      },
+    );
 
-=item B<add>
+    ... stuff that warns ...
+  }
 
-    $dispatcher->add(sub { ... });
+=head2 B<add>
 
-Adds a new handler to your existing dispatcher, which will fire before any
-existing handlers.
+  $SIG{...}->add(sub { ... });
+  $SIG{...} = sub { ... };
 
-=back
+Adds a new handler to your existing dispatcher, which will fire
+before any existing handlers.
 
-=cut
+=head1 CONTRACT
+
+I've been there: you need to tamper with the inner workings of some
+module you've pulled from CPAN, or you just need to stick extra
+information inside its instances.  Private attributes start with a
+hyphen (-). Play with them at your own risk.
+
+Handlers are dispatched in LIFO order.
+
+
+=head1 REASSIGNMENT TO $SIG{...}
+
+Once you have set up a dispatcher to manage multiple handlers for a
+given signal, the dispatcher will catch this:
+
+  $SIG{$your_signal} = \&new_handler;
+
+and treat it as this:
+
+  $SIG{$your_signal}->add(\&new_handler);
+
+That is to say, the dispatcher will continue to exist, and will fire
+new_handler() before firing other handlers that the dispatcher
+already knows about.
+
+However, if you do this:
+
+  local $SIG{$your_signal} = \&new_handler;
+
+then the rules of local() kick in, and you won't get multiple dispatch
+until the scope of your local() ends.
 
 =head1 AUTHOR
 
@@ -164,7 +192,8 @@ Belden Lyman <belden.lyman@gmail.com>
 
 Copyright 2011 by Belden Lyman.
 
-This library is free software; you can redistribute it and/or modify it
-under the same terms as Perl itself.
+This library is free software; you can redistribute it and/or modify
+it under the same terms as Perl itself. The github repository for
+this module is: git://github.com/belden/multiple-signal-handlers.git
 
 =cut
