@@ -1,0 +1,5 @@
+t/MultipleSignalHandlers.t
+lib/MultipleSignalHandlers/Destroyer.pm
+lib/MultipleSignalHandlers.pm
+Makefile.PL
+MANIFEST

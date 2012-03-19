@@ -3,15 +3,26 @@ package MultipleSignalHandlers;
 use strict;
 use warnings;
 
+# Here's the first neat thing about this module: calling ->manage sets up
+# an object at the requested spot in %SIG, and returns a destroyer object.
+# When the destroyer object goes out of scope, it goes and unties the
+# corresponding spot in %SIG.
 use MultipleSignalHandlers::Destroyer;
 
+# The second neat thing: you don't actually have to stick a coderef
+# as your value in %SIG. Sticking in something that can be treated
+# as a coderef is enough.
 use overload (
   '&{}' => \&fire_handlers,
   fallback => 1,
 );
 
-our $VERSION = 0.05;
+our $VERSION = 0.06;
 
+# The third and final neat thing: we trap attempts to assign to a managed
+# slot in %SIG by  tie'ing our object in place. Our ->new is spelled tie().
+# Note that 'local $SIG{$blarch} = sub { ... }' will defeat this module's
+# ability to intercept %SIG assignment attempts.
 sub TIESCALAR {
   my ($class, %args) = @_;
 
@@ -41,12 +52,21 @@ sub UNTIE {
 sub manage {
   my ($class, $signal, $handler) = @_;
 
+	# If we haven't already set up an object in %SIG for this $signal, then
+	# go set one up now.
   if (!UNIVERSAL::isa($SIG{$signal}, $class)) {
     my $existing = delete $SIG{$signal};
     tie $SIG{$signal}, $class, (default => $existing, signal => $signal);
   }
 
+	# This assignment hits STORE(), which calls ->add.
   $SIG{$signal} = $handler;
+
+	# Initially I had
+	#   return tied($SIG{$signal});
+	# here, but then the signal manager never went out of scope: the caller of
+	# ->manage held on to one reference, and %SIG contained another. Returning
+	# a promise to untie() %SIG is all that the caller needs.
   return MultipleSignalHandlers::Destroyer->new(signal => $signal);
 }
 
@@ -55,6 +75,8 @@ sub add {
   unshift @{$self->{-handlers}}, $handler;
 }
 
+# Note that we don't actually fire the handlers in ->fire_handlers; we just
+# return a coderef, which is all that the caller (perl) is looking for.
 sub fire_handlers {
   my ($self) = @_;
   return sub {
