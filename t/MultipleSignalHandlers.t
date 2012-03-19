@@ -4,7 +4,7 @@ use strict;
 use warnings;
 use Test::More (tests => 6);
 
-use lib '.';
+use lib '../lib';
 use MultipleSignalHandlers;
 
 # basic tests
